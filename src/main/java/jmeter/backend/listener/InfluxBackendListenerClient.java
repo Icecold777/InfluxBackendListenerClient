@@ -28,6 +28,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import com.squareup.okhttp.OkHttpClient;
 
 
 public class InfluxBackendListenerClient extends AbstractBackendListenerClient implements Runnable {
@@ -151,11 +152,11 @@ public class InfluxBackendListenerClient extends AbstractBackendListenerClient i
 	@Override
     public Arguments getDefaultParameters() {
         Arguments arguments = new Arguments();
-		arguments.addArgument(KEY_PROJECT_NAME, "Test_Project");
-		arguments.addArgument(KEY_ENV_TYPE, "null");
-        arguments.addArgument(KEY_TEST_TYPE, "null");
-        arguments.addArgument(KEY_LG_NAME, "Load_Generator_Name");
-        arguments.addArgument(KEY_BUILD, "null");
+		arguments.addArgument(KEY_PROJECT_NAME, "defined with -DInfluxDB.ProjectName");
+		arguments.addArgument(KEY_ENV_TYPE, "defined with -DInfluxDB.EnvType");
+        arguments.addArgument(KEY_TEST_TYPE, "defined with -DInfluxDB.TestType");
+        arguments.addArgument(KEY_LG_NAME, "defined with -DInfluxDB.LoadGenerator");
+        arguments.addArgument(KEY_BUILD, "defined with -DInfluxDB.BuildId");
         arguments.addArgument(InfluxDBConfig.KEY_INFLUX_DB_HOST, "localhost");
         arguments.addArgument(InfluxDBConfig.KEY_INFLUX_DB_PORT, Integer.toString(InfluxDBConfig.DEFAULT_PORT));
         arguments.addArgument(InfluxDBConfig.KEY_INFLUX_DB_USER, "db_username");
@@ -172,11 +173,11 @@ public class InfluxBackendListenerClient extends AbstractBackendListenerClient i
 
 	@Override
 	public void setupTest(BackendListenerContext context) throws Exception {
-		testType = context.getParameter(KEY_TEST_TYPE, "null");
-		envType = context.getParameter(KEY_ENV_TYPE, "null");
-		projectName = context.getParameter(KEY_PROJECT_NAME, "Test_Project");
-		loadGenerator = context.getParameter(KEY_LG_NAME, "loadGenerator");
-		buildId = context.getParameter(KEY_BUILD, "null");
+		testType = System.getProperty("InfluxDB.TestType", "null");
+		envType = System.getProperty("InfluxDB.EnvType", "null");
+		projectName = System.getProperty("InfluxDB.ProjectName", "null");
+		loadGenerator = System.getProperty("InfluxDB.LoadGenerator", "null");
+		buildId = System.getProperty("InfluxDB.BuildId", "null");
 		try {
 			sampleGroupMap = SampleGroupYMLProcessor.loadFromFile("transaction_groups.yml");
 		} catch (IOException e) {
@@ -268,8 +269,14 @@ public class InfluxBackendListenerClient extends AbstractBackendListenerClient i
 	 */
 	private void setupInfluxClient(BackendListenerContext context) {
 		try {
+			
+		OkHttpClient.Builder okHttpClientBuilder = new OkHttpClient().newBuilder()
+		.connectTimeout(60, TimeUnit.SECONDS)
+		.readTimeout(200, TimeUnit.SECONDS)
+		.writeTimeout(200, TimeUnit.SECONDS);
+		
 		influxDBConfig = new InfluxDBConfig(context);
-		influxDB = InfluxDBFactory.connect(influxDBConfig.getInfluxDBURL(), influxDBConfig.getInfluxUser(), influxDBConfig.getInfluxPassword());
+		influxDB = InfluxDBFactory.connect(influxDBConfig.getInfluxDBURL(), influxDBConfig.getInfluxUser(), influxDBConfig.getInfluxPassword(), okHttpClientBuilder);
 		influxDB.enableBatch(200, 5, TimeUnit.SECONDS);
 
 		createJmeterDatabaseIfNotExistent();
