@@ -28,7 +28,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import com.squareup.okhttp.OkHttpClient;
+import okhttp3.OkHttpClient;
 
 
 public class InfluxBackendListenerClient extends AbstractBackendListenerClient implements Runnable {
@@ -399,6 +399,8 @@ public class InfluxBackendListenerClient extends AbstractBackendListenerClient i
 	 */
 	private void createAggregatedReport() {
 		 try {
+        	String db2 = influxDBConfig.getInfluxDatabase();
+		 	String db = influxDBConfig.getInfluxDatabase()+"_aggregated";
         	String aggregateReportQuery =
                     "SELECT count(" + RequestMeasurement.Fields.RESPONSE_TIME + ") as \"aggregate_report_count\"," +
 							"mean(" + RequestMeasurement.Fields.RESPONSE_TIME + ") as \"average\"," +
@@ -412,8 +414,8 @@ public class InfluxBackendListenerClient extends AbstractBackendListenerClient i
 							"(sum("+RequestMeasurement.Fields.ERROR_COUNT+")/count("+RequestMeasurement.Fields.RESPONSE_TIME+"))*100 as \"aggregate_report_error%\","+
 							"last(" + RequestMeasurement.Fields.TPS_RATE + ") as \"aggregate_report_rate\"," +
 							"last(" + RequestMeasurement.Fields.NETWORK_RATE + ") as \"aggregate_report_bandwidth\" " +
-							"INTO \"" + AggregateReportMeasurement.MEASUREMENT_NAME + "\" " +
-                            "FROM \"" + RequestMeasurement.MEASUREMENT_NAME + "\"" +
+							"INTO \"" + db + "\".\"autogen\".\"" + AggregateReportMeasurement.MEASUREMENT_NAME + "\" " +
+                            "FROM \"" + db2 + "\".\"jmeterRP\".\"" +  RequestMeasurement.MEASUREMENT_NAME + "\" " +
 							"WHERE \"projectName\"='"+ projectName +"' AND \"envType\"='"+ envType +"' AND \"testType\"='"+ testType +"' AND \"loadGenerator\"='"+ loadGenerator +"' AND time > '"+TimeUtil.toInfluxDBTimeFormat(testStart)+"' " +
 							"GROUP BY \"" + RequestMeasurement.Tags.REQUEST_NAME + "\"," +
 							          "\"" + KEY_BUILD + "\"," +
@@ -422,9 +424,36 @@ public class InfluxBackendListenerClient extends AbstractBackendListenerClient i
 							          "\"" + KEY_TEST_TYPE + "\"," +
 							          "\"" + KEY_LG_NAME + "\"," +
 							          "\"" + KEY_SAMPLE_GROUP + "\"";
-			//LOGGER.info(aggregateReportQuery);
-			Query query = new Query(aggregateReportQuery, influxDBConfig.getInfluxDatabase());
+
+        	String saturationPointQuery =
+					"SELECT percentile(rate::float,85) as saturationPoint"+
+					" INTO \"" + db + "\".\"autogen\".\"" + AggregateReportMeasurement.MEASUREMENT_NAME + "\" " +
+					"FROM (SELECT  count(" + RequestMeasurement.Fields.RESPONSE_TIME + ")/60 AS rate " +
+					"FROM \"" + db2 + "\".\"jmeterRP\".\"" +  RequestMeasurement.MEASUREMENT_NAME + "\" " +
+		 			"WHERE \"projectName\"='"+ projectName +"' AND \"loadGenerator\" ='"+ loadGenerator +"' AND \"envType\" = '"+ envType +"'  AND \"testType\" ='"+ testType +"' AND time > '"+TimeUtil.toInfluxDBTimeFormat(testStart)+"' " +
+					"GROUP BY \"" + RequestMeasurement.Tags.REQUEST_NAME + "\"," +
+							"\"" + KEY_BUILD + "\"," +
+							"\"" + KEY_PROJECT_NAME + "\"," +
+							"\"" + KEY_ENV_TYPE + "\"," +
+							"\"" + KEY_TEST_TYPE + "\"," +
+							"\"" + KEY_LG_NAME + "\"," +
+							"\"" + KEY_SAMPLE_GROUP + "\","+
+							"time(60s)) " +
+			 		"GROUP BY \"" + RequestMeasurement.Tags.REQUEST_NAME + "\"," +
+							 "\"" + KEY_BUILD + "\"," +
+							 "\"" + KEY_PROJECT_NAME + "\"," +
+							 "\"" + KEY_ENV_TYPE + "\"," +
+							 "\"" + KEY_TEST_TYPE + "\"," +
+							 "\"" + KEY_LG_NAME + "\"," +
+							 "\"" + KEY_SAMPLE_GROUP + "\"";
+
+        	LOGGER.info(aggregateReportQuery);
+			LOGGER.info(saturationPointQuery);
+
+			Query query = new Query(aggregateReportQuery, db);
             influxDB.query(query);
+			Query query2 = new Query(saturationPointQuery, db);
+			influxDB.query(query2);
             LOGGER.info("Aggregate Report is created");
         }
         catch (InfluxDBException e){
